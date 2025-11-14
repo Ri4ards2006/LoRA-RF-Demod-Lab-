@@ -1,0 +1,174 @@
+// IQ-Demodulator für Echtzeitverarbeitung (Tang Nano)
+// Visualisiert I/Q-Komponenten und ihre Amplitude über LEDs
+module iq_demod (
+    input wire clk_27m,       // 27 MHz Systemtakt (Eingabe)
+    input wire rst_n,        // Activen Nieder-Zustand-Reset (async)
+    input wire signed [7:0] adc_in, // 8-bit signiertes ADC-Signal (RF-Eingang)
+    output reg [7:0] i_led,  // I-Komponente für LED-Visualisierung (0-255)
+    output reg [7:0] q_led,  // Q-Komponente für LED-Visualisierung (0-255)
+    output reg [3:0] mag_led  // Amplitude (I²+Q²) escaliert auf 4 Bit (0-15)
+);
+
+    // ---------------------------
+    // 1. Parameter für LO-Signal
+    // ---------------------------
+    localparam PHASE_BITS = 16;          // Phase-Akkumulatorauflösung (16 Bit)
+    localparam CARRIER_FREQ = 1_000_000; // Trägerfrequenz (1 MHz)
+    localparam SAMPLING_FREQ = 27_000_000; // Abtastrate ADC (27 MHz)
+    // Phase-Inkrement pro Taktcycle: (Trägerfrequenz / Abtastrate) * 2^PHASE_BITS
+    localparam PHASE_STEP = (CARRIER_FREQ * (1 << PHASE_BITS)) / SAMPLING_FREQ; 
+
+    // ---------------------------
+    // 2. LO-LUT (Cosinus/Sinus)
+    // ---------------------------
+    // LUT für I-Komponente (Cosinus) und Q-Komponente (Sinus), 256 Einträge (8 Bit Index)
+    reg signed [7:0] lo_i_lut [0:255]; // Cos(θ), Q7.0 Format (-128 bis 127)
+    reg signed [7:0] lo_q_lut [0:255]; // Sin(θ), Q7.0 Format
+
+    // Phase-Akkumulator (generiert stetig steigende Phase)
+    reg [PHASE_BITS-1:0] phase_accum;
+
+    // ---------------------------
+    // 3. Mischstufe (I/Q-Gerade)
+    // ---------------------------
+    reg signed [15:0] i_mixed;  // I-Mischsignal (ADC * Cos(θ), 16 Bit)
+    reg signed [15:0] q_mixed;  // Q-Mischsignal (ADC * Sin(θ), 16 Bit)
+
+    // ---------------------------
+    // 4. LPF-Filter (FIR, 4-Taps)
+    // ---------------------------
+    localparam FILTER_TAPS = 4;  // Anzahl Filtertaps
+    reg signed [15:0] i_buf [0:FILTER_TAPS-1]; // Buffer für I-Mischsignale (16 Bit pro Element)
+    reg signed [15:0] q_buf [0:FILTER_TAPS-1]; // Buffer für Q-Mischsignale
+    reg signed [31:0] i_sum;    // Summe I-Taps (32 Bit, um Überläufe zu vermeiden)
+    reg signed [31:0] q_sum;    // Summe Q-Taps
+
+    // ---------------------------
+    // 5. Dekimationsstufe (LED-Takt)
+    // ---------------------------
+    reg [15:0] dec_cnt;         // Zähler für Dekimation (27 MHz → ~27 kHz)
+    localparam DEC_FACTOR = 1000; // Update-LED alle 1000 Taktcycles
+
+    // ---------------------------
+    // Initialisierung der LO-LUTs
+    // ---------------------------
+    initial begin
+        // Fülle LUT mit Cosinus-Werten für I-Komponente
+        for (int i = 0; i < 256; i++) begin
+            real angle = (i * 360.0) / 256.0; // Winkel pro Index (Grad)
+            angle = angle * (3.14159265 / 180.0); // Konvertiere zu Bogenmaß
+            real cos_val = cos(angle) * 127.0; // Skaliere zu Q7.0 (-128 bis 127)
+            lo_i_lut[i] = $signed($floor(cos_val)); // Runde und konvertiere zu signed
+            real sin_val = sin(angle) * 127.0; // Sinus für Q-Komponente
+            lo_q_lut[i] = $signed($floor(sin_val));
+        end
+    end
+
+    // ---------------------------
+    // Phase-Akkumulator (LO-Takt)
+    // ---------------------------
+    always @(posedge clk_27m or negedge rst_n) begin
+        if (!rst_n) begin
+            phase_accum <= 0; // Reset: Phase auf 0
+        end else begin
+            phase_accum <= phase_accum + PHASE_STEP; // Inkrementiere Phase
+            // Automatisches Überlaufen (Phase mod 2^PHASE_BITS)
+        end
+    end
+
+    // Extrahiere 8-Bit-Index aus Phase-Akkumulator (obere 8 Bit)
+    wire [7:0] phase_idx = phase_accum[PHASE_BITS-1:PHASE_BITS-8];
+
+    // Generiere aktuelles LO-Signal (I=Cos, Q=Sin)
+    wire signed [7:0] cos_lo = lo_i_lut[phase_idx]; // I-LO (Cosinus)
+    wire signed [7:0] sin_lo = lo_q_lut[phase_idx]; // Q-LO (Sinus)
+
+    // ---------------------------
+    // Mischstufe (RF * LO)
+    // ---------------------------
+    always @(posedge clk_27m) begin
+        // I-Mischsignal: RF-Signal * Cos(θ) (signiertes 8-bit * 8-bit → 16-bit)
+        i_mixed <= adc_in * cos_lo;
+        // Q-Mischsignal: RF-Signal * Sin(θ)
+        q_mixed <= adc_in * sin_lo;
+    end
+
+    // ---------------------------
+    // I-Kanal-FIR-Filter (LPF)
+    // ---------------------------
+    always @(posedge clk_27m) begin
+        if (!rst_n) begin
+            i_buf <= '{default: 0}; // Reset Buffer
+            i_sum <= 0; // Reset Summe
+        end else begin
+            // Buffer aktualisieren: neues Mischsignal an den Anfang, alte nach rechts schieben
+            i_buf <= {i_mixed, i_buf[FILTER_TAPS-1:FILTER_TAPS-1]}; // Fehlerschreibung! Korrekt:
+            // (Korrektur): Buffer_rotate für 4 Taps → neues Sample in Tap 3, alte Taps 0-2 nach rechts
+            i_buf[3] <= i_mixed;       // Neues Sample in Tap 3 (neuestes)
+            i_buf[2] <= i_buf[3];      // Altes Tap 3 → Tap 2
+            i_buf[1] <= i_buf[2];      // Altes Tap 2 → Tap 1
+            i_buf[0] <= i_buf[1];      // Altes Tap 1 → Tap 0 (ältestes)
+            
+            // Summe der Taps (Moving-Average, Koeffizienten: [1,1,1,1])
+            i_sum <= i_buf[0] + i_buf[1] + i_buf[2] + i_buf[3];
+        end
+    end
+
+    // ---------------------------
+    // Q-Kanal-FIR-Filter (LPF)
+    // ---------------------------
+    always @(posedge clk_27m) begin
+        if (!rst_n) begin
+            q_buf <= '{default: 0};
+            q_sum <= 0;
+        end else begin
+            // Q-Buffer gleich wie I-Buffer (selber Filter)
+            q_buf[3] <= q_mixed;
+            q_buf[2] <= q_buf[3];
+            q_buf[1] <= q_buf[2];
+            q_buf[0] <= q_buf[1];
+            q_sum <= q_buf[0] + q_buf[1] + q_buf[2] + q_buf[3];
+        end
+    end
+
+    // ---------------------------
+    // Dekimation (LED-Update)
+    // ---------------------------
+    always @(posedge clk_27m) begin
+        if (!rst_n) begin
+            dec_cnt <= 0;   //Reset Zähler
+            i_led <= 0;     //LED I auf 0
+            q_led <= 0;     //LED Q auf 0
+        end else begin
+            // Zähler: 0..DEC_FACTOR-1 zählen
+            if (dec_cnt == DEC_FACTOR - 1) begin
+                dec_cnt <= 0; // Zähler zurückspringen
+                // Filtert I/Q-Werte escaliert auf 8 Bit (Summe / 4 → Moving-Average)
+                i_led <= $unsigned(i_sum >> 2); // Dividiere durch 4 (Shift Right 2)
+                q_led <= $unsigned(q_sum >> 2);
+            end else begin
+                dec_cnt <= dec_cnt + 1; // Zähler inkrementieren
+                i_led <= i_led;         // Halte I-LED-Wert
+                q_led <= q_led;         // Halte Q-LED-Wert
+            end
+        end
+    end
+
+    // ---------------------------
+    // Amplitude-Berechnung (LED)
+    // ---------------------------
+    always @(posedge clk_27m) begin
+        if (!rst_n) begin
+            mag_led <= 0; // Reset Amplitude-LED
+        end else begin
+            // Absolute Werte von I und Q (positiv für Visualisierung)
+            reg signed [7:0] i_abs = i_led[7] ? -i_led : i_led;
+            reg signed [7:0] q_abs = q_led[7] ? -q_led : q_led;
+            // Summe der Quadrate (Approximation von I² + Q²)
+            reg [15:0] mag_sq = (i_abs * i_abs) + (q_abs * q_abs);
+            // Skaliere Summe auf 4 Bit (Max 15, Annahme: mag_sq max ~65k → 65k/4369 ≈15)
+            mag_led <= mag_sq / 4369; // 4369 ≈ 65535 / 15 (65535 ist max 16-bit Wert)
+        end
+    end
+
+endmodule
