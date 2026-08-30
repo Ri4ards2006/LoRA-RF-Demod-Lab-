@@ -3,7 +3,7 @@
 # Toolchain: Yosys + NextPNR-Gowin + Apycula + openFPGALoader + Icarus Verilog
 # =============================================================================
 
-PROJECT       := lora_rf_demod_top
+PROJECT       := top_rf_demod
 DEVICE_FAMILY := GW1N-9C
 DEVICE_PART   := GW1NR-LV9QN88PC6/I5
 
@@ -27,6 +27,8 @@ all: $(BUILD_DIR)/$(PROJECT).fs
 # Step 1: Synthesis with Yosys
 $(BUILD_DIR)/$(PROJECT).json: $(RTL_SRCS) $(CST_FILE) | $(BUILD_DIR)
 	@echo "--- [1/4] Running Synthesis with Yosys ---"
+	cp -f rtl/dsp/*.mem ./ 2>/dev/null || true
+	cp -f sim/*.mem ./ 2>/dev/null || true
 	yosys -p "read_verilog -sv $(RTL_SRCS); synth_gowin -top $(PROJECT) -json $@"
 
 # Step 2: Place & Route with NextPNR-Gowin
@@ -63,7 +65,8 @@ sim: | $(BUILD_DIR)
 	@echo "--- [Sim 1/2] Compiling Simulation Testbench with Icarus Verilog ---"
 	cp -f rtl/dsp/*.mem $(BUILD_DIR)/ 2>/dev/null || true
 	cp -f sim/*.mem $(BUILD_DIR)/ 2>/dev/null || true
-	iverilog -g2012 -I $(RTL_DIR)/dsp -I sim -o $(BUILD_DIR)/sim.vvp sim/tb_top_rf_demod.v $(RTL_SRCS)
+	cp -f *.mem $(BUILD_DIR)/ 2>/dev/null || true
+	iverilog -g2012 -I $(RTL_DIR)/dsp -I sim -I . -o $(BUILD_DIR)/sim.vvp sim/tb_top_rf_demod.v $(RTL_SRCS)
 	@echo "--- [Sim 2/2] Running VVP Simulation Engine ---"
 	cd $(BUILD_DIR) && vvp sim.vvp
 	@echo "-----------------------------------------------------------------"

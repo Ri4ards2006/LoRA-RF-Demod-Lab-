@@ -6,7 +6,7 @@ for LoRa Chirp Spread Spectrum (CSS) Modulation & Demodulation.
 Features:
 - Bit-accurate LoRa baseband chirp modulation (SF=7..12, BW=125/250/500 kHz).
 - IF Upconversion (f_IF = 3.0 MHz) and 8-bit ADC quantization (32 MSPS).
-- Verilog .mem testbench vector exporter (Q1.7 signed hex).
+- Verilog .mem testbench vector exporter (Q1.7 signed hex, STRICTLY NO COMMENTS).
 - Digital Downconversion (DDC), Conjugate De-chirping & FFT Peak Extraction.
 - Verification assertion of decoded symbol against ground truth.
 """
@@ -26,7 +26,6 @@ def generate_lora_symbol(sf=7, bw=125e3, symbol=42, fs=32e6, fif=3e6, snr_db=Non
     chirp_rate = bw / t_sym  # mu = BW^2 / 2^SF (Hz/s)
 
     # 1. Baseband Modulated LoRa Chirp
-    # Instantaneous frequency starts at (symbol/n_chips)*BW and sweeps linearly with wrap-around
     f_offset = (symbol / n_chips) * bw
     f_inst = (f_offset + chirp_rate * t) % bw - (bw / 2.0)
     
@@ -67,11 +66,11 @@ def generate_lora_symbol(sf=7, bw=125e3, symbol=42, fs=32e6, fif=3e6, snr_db=Non
 def export_mem_vector(quant_samples, filename):
     """
     Export 8-bit signed integer samples to Verilog $readmemh hex file.
+    STRICTLY RAW HEX - No '#' comments.
     """
     os.makedirs(os.path.dirname(os.path.abspath(filename)), exist_ok=True)
     with open(filename, "w") as f:
         for s in quant_samples:
-            # 2's complement 8-bit hex
             u8_val = int(s) & 0xFF
             f.write(f"{u8_val:02X}\n")
     print(f"[+] Exported {len(quant_samples)} stimulus samples to: {filename}")
@@ -98,7 +97,6 @@ def demodulate_lora_symbol(sim_data):
     iq_raw = i_raw + 1j * q_raw
 
     # 2. Decimation to chip rate (1 sample per chip, N = 2^SF points)
-    # Using integration/average over each chip period
     samples_per_chip = len(t) // n_chips
     iq_dec = np.zeros(n_chips, dtype=complex)
     for c in range(n_chips):
@@ -161,21 +159,21 @@ def main():
     )
     print(f"[*] Generated Symbol Duration: {sim_data['t_sym']*1e3:.3f} ms ({sim_data['n_samples']} samples)")
 
-    # 2. Export Memory File
-    if args.out is None:
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        out_mem = os.path.join(base_dir, "test_vectors", "lora_if_stimulus.mem")
-    else:
-        out_mem = args.out
+    # 2. Export Memory Files to All Required Destinations
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    fpga_dir = os.path.join(base_dir, "..", "hw", "fpga")
 
-    export_mem_vector(sim_data["s_quant"], out_mem)
+    dest_paths = [
+        os.path.join(base_dir, "test_vectors", "lora_if_stimulus.mem"),
+        os.path.join(fpga_dir, "sim", "lora_if_stimulus.mem"),
+        os.path.join(fpga_dir, "build", "lora_if_stimulus.mem"),
+        os.path.join(fpga_dir, "lora_if_stimulus.mem")
+    ]
+    if args.out is not None:
+        dest_paths.append(args.out)
 
-    # Also copy to FPGA sim directory for easy Verilog access
-    sim_dir_mem = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "..", "hw", "fpga", "sim", "lora_if_stimulus.mem"
-    )
-    export_mem_vector(sim_data["s_quant"], sim_dir_mem)
+    for p in dest_paths:
+        export_mem_vector(sim_data["s_quant"], p)
 
     # 3. Run Golden Reference DSP Demodulation
     print("\n[*] Executing Golden Reference DSP Demodulator...")
@@ -193,4 +191,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

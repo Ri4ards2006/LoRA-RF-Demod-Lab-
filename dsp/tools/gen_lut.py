@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 gen_lut.py - Generate 256-entry Sine and Cosine ROM initialization files for NCO.
-Format: Q1.7 signed 8-bit integers formatted as two-digit hexadecimal per line.
-Targets: nco_quad_mixer.v on Gowin GW1NR-9C.
+Format: Q1.7 signed 8-bit integers formatted as two-digit hexadecimal per line (NO comments).
+Targets: nco_quad_mixer.v, lora_dechirp.v, symbol_peak_detector.v on Gowin GW1NR-9C.
 """
 
 import os
@@ -11,8 +11,12 @@ import math
 def generate_luts(num_entries=256, output_dirs=None):
     if output_dirs is None:
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        fpga_dir = os.path.join(base_dir, "..", "hw", "fpga")
         output_dirs = [
-            os.path.join(base_dir, "..", "hw", "fpga", "rtl", "dsp"),
+            os.path.join(fpga_dir, "rtl", "dsp"),
+            os.path.join(fpga_dir, "sim"),
+            os.path.join(fpga_dir, "build"),
+            fpga_dir,
             os.path.join(base_dir, "test_vectors")
         ]
 
@@ -46,9 +50,8 @@ def generate_luts(num_entries=256, output_dirs=None):
         with open(sin_file, "w") as f:
             f.write("\n".join(sin_hex) + "\n")
 
-        print(f"Generated: {cos_file} ({num_entries} entries)")
-        print(f"Generated: {sin_file} ({num_entries} entries)")
+        print(f"[+] Generated: {cos_file} ({len(cos_hex)} entries)")
+        print(f"[+] Generated: {sin_file} ({len(sin_hex)} entries)")
 
 if __name__ == "__main__":
     generate_luts()
-
