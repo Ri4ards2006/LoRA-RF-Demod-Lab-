@@ -39,3 +39,20 @@
 
 # debug information files
 *.dwo
+
+# FPGA & EDA Build Outputs
+hw/fpga/build/
+*.vvp
+*.vcd
+*.fs
+*.json
+
+# PlatformIO & Embedded Builds
+**/.pio/
+*.bin
+*.elf
+*.map
+
+# Python Cache
+__pycache__/
+*.pyc
