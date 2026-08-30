@@ -308,9 +308,10 @@ pio device monitor -b 115200
 - [x] **Phase 3: Digital Signal Processing (DSP) Pipeline**
   - [x] 16-bit NCO Quadrature Mixer with Q1.7 Quarter-Wave LUTs.
   - [x] 3rd-order CIC decimation filter with 28-bit bit-growth protection.
-- [ ] **Phase 4: Hardware LoRa CSS & FSK Demodulator Cores**
-  - [ ] Synthesizable Radix-2/4 128-point FFT pipeline in Gowin BSRAM.
-  - [ ] Hardware ArgMax peak detector, Gray de-mapper, and Hamming FEC decoder.
+- [x] **Phase 4: Hardware LoRa CSS & FSK Demodulator Cores**
+  - [x] Synthesizable conjugate reference downchirp phase generator (`lora_dechirp.v`).
+  - [x] 128-bin DFT energy accumulator & ArgMax symbol peak slicer (`symbol_peak_detector.v`).
+  - [x] Real-time diagnostic LED matrix output & end-to-end simulation verification.
 - [ ] **Phase 5: Custom RF PCB & Antenna Matching**
   - [ ] KiCad 8 4-layer front-end board ($50\,\Omega$ Grounded Coplanar Waveguide).
   - [ ] Active downconversion mixer (SA612A / LT5560) + Skyworks LNA front-end.

@@ -2,6 +2,14 @@
 // Module: top_rf_demod
 // Description: Top-level FPGA Integration for RF Demodulation Lab
 // Target: Sipeed Tang Nano 9K (Gowin GW1NR-LV9QN88PC6/I5)
+//
+// Full Pipeline:
+// 1. ADC Ingress (AD9280, 8-Bit Parallel, Offset Binary -> 2's Complement)
+// 2. NCO Quadrature Mixer (f_IF = 3.0 MHz down to Analytical Baseband I/Q)
+// 3. 3rd-Order CIC Decimation Filters (R=16, 32 MSPS -> 2 MSPS)
+// 4. LoRa CSS Conjugate De-Chirp Correlator
+// 5. 128-Bin DFT Energy Accumulator & ArgMax Peak Symbol Slicer
+// 6. Diagnostic LEDs & Heartbeat
 // ============================================================================
 
 `default_nettype none
@@ -15,7 +23,9 @@ module top_rf_demod (
     input  wire       raw_adc_otr,    // ADC Out-Of-Range indicator
     output wire       adc_clk_out,    // Clock forwarded to ADC
 
-    // Telemetry & Output
+    // Demodulator Status & Telemetry
+    output wire [6:0] sym_out,        // 7-bit decoded symbol (0..127)
+    output wire       sym_valid,      // Symbol ready strobe
     output wire       uart_tx,        // UART Telemetry TX (BL702 bridge)
     output wire [5:0] led             // Onboard diagnostic LEDs
 );
@@ -23,7 +33,9 @@ module top_rf_demod (
     // Forward 27 MHz clock directly to ADC as baseline sample clock
     assign adc_clk_out = clk_27m;
 
+    // ------------------------------------------------------------------------
     // 1. ADC Capture Ingress
+    // ------------------------------------------------------------------------
     wire [7:0] sample_data;
     wire       sample_valid;
     wire       sample_clip;
@@ -40,8 +52,10 @@ module top_rf_demod (
         .sample_clip  (sample_clip)
     );
 
+    // ------------------------------------------------------------------------
     // 2. NCO Quadrature Mixer (f_IF = 3.0 MHz, f_s = 27.0 MHz)
-    // Phase step: (3.0 / 27.0) * 65536 = 7281 = 16'h1C71
+    // Tuning word: (3.0 / 27.0) * 65536 = 7281 = 16'h1C71
+    // ------------------------------------------------------------------------
     wire        iq_valid;
     wire signed [15:0] i_baseband;
     wire signed [15:0] q_baseband;
@@ -63,7 +77,9 @@ module top_rf_demod (
         .q_out        (q_baseband)
     );
 
-    // 3. CIC Decimation Filters (R=16)
+    // ------------------------------------------------------------------------
+    // 3. 3rd-Order CIC Decimation Filters (R=16)
+    // ------------------------------------------------------------------------
     wire        cic_i_valid;
     wire signed [15:0] cic_i_out;
     wire        cic_q_valid;
@@ -95,22 +111,84 @@ module top_rf_demod (
         .out_data  (cic_q_out)
     );
 
-    // 4. Diagnostic LEDs & Heartbeat
+    // ------------------------------------------------------------------------
+    // 4. LoRa CSS Conjugate De-Chirp Correlator
+    // ------------------------------------------------------------------------
+    wire        dechirp_valid;
+    wire signed [15:0] i_dechirp;
+    wire signed [15:0] q_dechirp;
+    wire        sym_boundary;
+
+    lora_dechirp #(
+        .DATA_WIDTH      (16),
+        .PHASE_WIDTH     (16),
+        .SAMPLES_PER_SYM (2048),
+        .PHASE_INC_START (-2048),
+        .PHASE_SLOPE     (2),
+        .COS_LUT_FILE    ("cos_lut256.mem"),
+        .SIN_LUT_FILE    ("sin_lut256.mem")
+    ) u_dechirp (
+        .clk_dsp         (clk_27m),
+        .rst_n           (rst_n),
+        .in_valid        (cic_i_valid),
+        .i_in            (cic_i_out),
+        .q_in            (cic_q_out),
+        .out_valid       (dechirp_valid),
+        .i_dechirp       (i_dechirp),
+        .q_dechirp       (q_dechirp),
+        .symbol_boundary (sym_boundary)
+    );
+
+    // ------------------------------------------------------------------------
+    // 5. 128-Bin DFT Spectral Energy Slicer & Peak Detector
+    // ------------------------------------------------------------------------
+    wire [6:0]  decoded_symbol;
+    wire [31:0] peak_power;
+    wire        symbol_valid;
+
+    symbol_peak_detector #(
+        .DATA_WIDTH       (16),
+        .SF               (7),
+        .N_BINS           (128),
+        .SAMPLES_PER_CHIP (16),
+        .COS_LUT_FILE     ("cos_lut256.mem"),
+        .SIN_LUT_FILE     ("sin_lut256.mem")
+    ) u_peak_detector (
+        .clk_dsp        (clk_27m),
+        .rst_n          (rst_n),
+        .in_valid       (dechirp_valid),
+        .i_dechirp      (i_dechirp),
+        .q_dechirp      (q_dechirp),
+        .symbol_valid   (symbol_valid),
+        .decoded_symbol (decoded_symbol),
+        .peak_power     (peak_power)
+    );
+
+    assign sym_out   = decoded_symbol;
+    assign sym_valid = symbol_valid;
+
+    // ------------------------------------------------------------------------
+    // 6. Diagnostic LEDs & Heartbeat
+    // ------------------------------------------------------------------------
     reg [23:0] hb_cnt;
+    reg [6:0]  r_latched_sym;
+
     always @(posedge clk_27m or negedge rst_n) begin
-        if (!rst_n) hb_cnt <= 24'd0;
-        else hb_cnt <= hb_cnt + 1'b1;
+        if (!rst_n) begin
+            hb_cnt        <= 24'd0;
+            r_latched_sym <= 7'd0;
+        end else begin
+            hb_cnt <= hb_cnt + 1'b1;
+            if (symbol_valid) begin
+                r_latched_sym <= decoded_symbol;
+            end
+        end
     end
 
-    assign led[0] = hb_cnt[23];           // Heartbeat (1.6 Hz)
-    assign led[1] = sample_clip;          // ADC Over-Range Warning
-    assign led[2] = cic_i_out[15];        // Sign of Decimated I
-    assign led[3] = cic_q_out[15];        // Sign of Decimated Q
-    assign led[4] = |cic_i_out[14:10];    // I-channel magnitude activity
-    assign led[5] = |cic_q_out[14:10];    // Q-channel magnitude activity
+    // Display decoded symbol bits [5:0] on LEDs, or heartbeat on bit 0 when idle
+    assign led[5:0] = (r_latched_sym[5:0] != 6'd0) ? r_latched_sym[5:0] : {5'b00000, hb_cnt[23]};
 
     assign uart_tx = 1'b1; // Idle high
 
 endmodule
 `default_nettype wire
-
