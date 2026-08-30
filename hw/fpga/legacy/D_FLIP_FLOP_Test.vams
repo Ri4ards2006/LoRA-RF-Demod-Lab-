@@ -1,0 +1,11 @@
+// D_FLIP_FLOP_Test.vams
+module d_ff_test (
+    input wire clk,
+    input wire d,
+    output reg q
+);
+    always @(posedge clk) begin
+        q <= d;
+    end
+endmodule
+

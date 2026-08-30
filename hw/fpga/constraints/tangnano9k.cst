@@ -1,0 +1,52 @@
+// Tang Nano 9K Hardware Constraints (GW1NR-9C C6/I5)
+
+// Master Clock (27.0 MHz Onboard Crystal)
+IO_LOC "clk_27m" 35;
+IO_PORT "clk_27m" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
+
+// Active-Low User Button Reset (S1)
+IO_LOC "rst_n" 4;
+IO_PORT "rst_n" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+
+// AD9280 8-Bit Parallel ADC Ingress (Bank 1 Header)
+IO_LOC "raw_adc_data[0]" 63; // Pin D0
+IO_LOC "raw_adc_data[1]" 86; // Pin D1
+IO_LOC "raw_adc_data[2]" 85; // Pin D2
+IO_LOC "raw_adc_data[3]" 84; // Pin D3
+IO_LOC "raw_adc_data[4]" 83; // Pin D4
+IO_LOC "raw_adc_data[5]" 82; // Pin D5
+IO_LOC "raw_adc_data[6]" 81; // Pin D6
+IO_LOC "raw_adc_data[7]" 80; // Pin D7
+IO_PORT "raw_adc_data[0]" IO_TYPE=LVCMOS33 PULL_MODE=NONE HYSTERESIS=HIGH;
+IO_PORT "raw_adc_data[1]" IO_TYPE=LVCMOS33 PULL_MODE=NONE HYSTERESIS=HIGH;
+IO_PORT "raw_adc_data[2]" IO_TYPE=LVCMOS33 PULL_MODE=NONE HYSTERESIS=HIGH;
+IO_PORT "raw_adc_data[3]" IO_TYPE=LVCMOS33 PULL_MODE=NONE HYSTERESIS=HIGH;
+IO_PORT "raw_adc_data[4]" IO_TYPE=LVCMOS33 PULL_MODE=NONE HYSTERESIS=HIGH;
+IO_PORT "raw_adc_data[5]" IO_TYPE=LVCMOS33 PULL_MODE=NONE HYSTERESIS=HIGH;
+IO_PORT "raw_adc_data[6]" IO_TYPE=LVCMOS33 PULL_MODE=NONE HYSTERESIS=HIGH;
+IO_PORT "raw_adc_data[7]" IO_TYPE=LVCMOS33 PULL_MODE=NONE HYSTERESIS=HIGH;
+
+IO_LOC "raw_adc_otr" 79;
+IO_PORT "raw_adc_otr" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
+
+IO_LOC "adc_clk_out" 77; // Clock forwarded to drive ADC sample timing
+IO_PORT "adc_clk_out" IO_TYPE=LVCMOS33 DRIVE=8;
+
+// Telemetry High-Speed UART TX (Connected to onboard BL702 USB Bridge)
+IO_LOC "uart_tx" 17;
+IO_PORT "uart_tx" IO_TYPE=LVCMOS33 DRIVE=8;
+
+// Diagnostic Status LEDs
+IO_LOC "led[0]" 10;
+IO_LOC "led[1]" 11;
+IO_LOC "led[2]" 13;
+IO_LOC "led[3]" 14;
+IO_LOC "led[4]" 15;
+IO_LOC "led[5]" 16;
+IO_PORT "led[0]" IO_TYPE=LVCMOS33 DRIVE=8;
+IO_PORT "led[1]" IO_TYPE=LVCMOS33 DRIVE=8;
+IO_PORT "led[2]" IO_TYPE=LVCMOS33 DRIVE=8;
+IO_PORT "led[3]" IO_TYPE=LVCMOS33 DRIVE=8;
+IO_PORT "led[4]" IO_TYPE=LVCMOS33 DRIVE=8;
+IO_PORT "led[5]" IO_TYPE=LVCMOS33 DRIVE=8;
+
