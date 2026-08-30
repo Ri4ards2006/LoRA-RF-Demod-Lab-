@@ -14,8 +14,10 @@
 
 `default_nettype none
 
-module top_rf_demod (
-    input  wire       clk_27m,        // 27 MHz onboard crystal oscillator
+module top_rf_demod #(
+    parameter [15:0] NCO_PHASE_INC = 16'h1800 // 3.0 MHz IF @ 32.0 MSPS ((3/32)*65536 = 6144)
+)(
+    input  wire       clk_27m,        // Master sample & DSP clock
     input  wire       rst_n,          // Active-low user pushbutton reset (S1)
     
     // AD9280 Parallel ADC Ingress
@@ -30,7 +32,7 @@ module top_rf_demod (
     output wire [5:0] led             // Onboard diagnostic LEDs
 );
 
-    // Forward 27 MHz clock directly to ADC as baseline sample clock
+    // Forward clock directly to ADC
     assign adc_clk_out = clk_27m;
 
     // ------------------------------------------------------------------------
@@ -53,8 +55,7 @@ module top_rf_demod (
     );
 
     // ------------------------------------------------------------------------
-    // 2. NCO Quadrature Mixer (f_IF = 3.0 MHz, f_s = 27.0 MHz)
-    // Tuning word: (3.0 / 27.0) * 65536 = 7281 = 16'h1C71
+    // 2. NCO Quadrature Mixer
     // ------------------------------------------------------------------------
     wire        iq_valid;
     wire signed [15:0] i_baseband;
@@ -71,7 +72,7 @@ module top_rf_demod (
         .rst_n        (rst_n),
         .sample_valid (sample_valid),
         .adc_sample   (sample_data),
-        .phase_inc    (16'h1C71),
+        .phase_inc    (NCO_PHASE_INC),
         .iq_valid     (iq_valid),
         .i_out        (i_baseband),
         .q_out        (q_baseband)

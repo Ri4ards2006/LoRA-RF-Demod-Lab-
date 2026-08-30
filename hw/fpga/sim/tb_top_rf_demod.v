@@ -11,9 +11,8 @@
 module tb_top_rf_demod;
 
     // Parameters
-    localparam integer CLK_PERIOD_NS     = 31; // ~32.0 MHz (31.25ns)
-    localparam integer STIM_MEM_SIZE     = 4096;
-    localparam integer TOTAL_ADC_SAMPLES = 32768; // 1 full symbol at 32 MSPS (SF=7, BW=125kHz)
+    localparam integer CLK_PERIOD_NS     = 31; // 32.0 MHz Clock (31.25ns period)
+    localparam integer TOTAL_ADC_SAMPLES = 32768; // Full 1.024ms symbol at 32 MSPS (SF=7, BW=125kHz)
     localparam integer EXPECTED_SYMBOL   = 42;    // Golden symbol encoded in stimulus
 
     // Signals
@@ -29,15 +28,15 @@ module tb_top_rf_demod;
     wire       uart_tx;
     wire [5:0] led;
 
-    // Stimulus memory
-    reg [7:0] stimulus_mem [0:STIM_MEM_SIZE-1];
+    // Stimulus memory array (sized for full 32768 sample symbol)
+    reg [7:0] mem_stimulus [0:32767];
     integer sample_idx;
     integer symbols_decoded_count;
     reg [6:0] last_decoded_sym;
     reg pass_flag;
 
     // ------------------------------------------------------------------------
-    // Clock Generation (32.0 MHz Clock)
+    // Clock Generation (32.0 MHz Sample Clock)
     // ------------------------------------------------------------------------
     initial begin
         clk_27m = 1'b0;
@@ -47,7 +46,9 @@ module tb_top_rf_demod;
     // ------------------------------------------------------------------------
     // Device Under Test (DUT)
     // ------------------------------------------------------------------------
-    top_rf_demod u_dut (
+    top_rf_demod #(
+        .NCO_PHASE_INC(16'h1800) // 3.0 MHz IF @ 32.0 MSPS
+    ) u_dut (
         .clk_27m      (clk_27m),
         .rst_n        (rst_n),
         .raw_adc_data (raw_adc_data),
@@ -67,7 +68,7 @@ module tb_top_rf_demod;
         $dumpvars(0, tb_top_rf_demod);
 
         // Load Stimulus Vector
-        $readmemh("lora_if_stimulus.mem", stimulus_mem);
+        $readmemh("lora_if_stimulus.mem", mem_stimulus);
 
         // Initialize signals
         rst_n                 = 1'b0;
@@ -88,15 +89,15 @@ module tb_top_rf_demod;
         $display("[*] Config: SF=7, BW=125 kHz, f_IF=3.0 MHz, Expected Symbol=%0d", EXPECTED_SYMBOL);
         $display("==========================================================");
 
-        // Stream full symbol sequence into parallel ADC ingress
+        // Stream all 32,768 samples into parallel ADC ingress
         for (sample_idx = 0; sample_idx < TOTAL_ADC_SAMPLES; sample_idx = sample_idx + 1) begin
             @(posedge clk_27m);
-            // Drive ADC inputs (convert signed 2's comp to offset binary for ADC bus)
-            raw_adc_data <= {~stimulus_mem[sample_idx % STIM_MEM_SIZE][7], stimulus_mem[sample_idx % STIM_MEM_SIZE][6:0]};
+            // Drive ADC inputs (convert signed 2's complement to offset binary for ADC bus)
+            raw_adc_data <= {~mem_stimulus[sample_idx][7], mem_stimulus[sample_idx][6:0]};
             raw_adc_otr  <= 1'b0;
         end
 
-        // Allow pipeline and search engine to complete correlation & peak finding
+        // Allow pipeline and sequential DFT search engine to complete ArgMax peak finding
         #(CLK_PERIOD_NS * 20000);
 
         $display("\n==========================================================");
@@ -104,8 +105,8 @@ module tb_top_rf_demod;
         $display("==========================================================");
         $display("[*] Total Input Samples Streamed : %0d", sample_idx);
         $display("[*] Total Symbols Decoded        : %0d", symbols_decoded_count);
-        $display("[*] Last Decoded Symbol          : %0d", last_decoded_sym);
         $display("[*] Expected Ground Truth Symbol : %0d", EXPECTED_SYMBOL);
+        $display("[*] Last Decoded Symbol          : %0d", last_decoded_sym);
 
         if (symbols_decoded_count > 0 && last_decoded_sym == EXPECTED_SYMBOL) begin
             $display("[*] STATUS: [ PASS ] EXACT SYMBOL MATCH VERIFIED!");
