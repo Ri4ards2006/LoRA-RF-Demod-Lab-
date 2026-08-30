@@ -1,6 +1,6 @@
 # =============================================================================
 # Makefile for Gowin GW1NR-9C (Sipeed Tang Nano 9K)
-# Toolchain: Yosys + NextPNR-Gowin + Apycula + openFPGALoader
+# Toolchain: Yosys + NextPNR-Gowin + Apycula + openFPGALoader + Icarus Verilog
 # =============================================================================
 
 PROJECT       := lora_rf_demod_top
@@ -58,13 +58,18 @@ flash: $(BUILD_DIR)/$(PROJECT).fs
 	@echo "--- [4/4] Flashing Tang Nano 9K (Internal Flash) ---"
 	openFPGALoader -b tangnano9k -f $<
 
-# Simulation Target (Icarus Verilog)
-sim:
-	@echo "--- Running Icarus Verilog Simulation ---"
-	iverilog -g2012 -o $(BUILD_DIR)/sim.vvp sim/tb_top_rf_demod.v $(RTL_SRCS)
-	vvp $(BUILD_DIR)/sim.vvp -lxt2
-	@echo "View waveforms using: gtkwave $(BUILD_DIR)/dump.vcd"
+# Simulation Target (Icarus Verilog + GTKWave)
+sim: | $(BUILD_DIR)
+	@echo "--- [Sim 1/2] Compiling Simulation Testbench with Icarus Verilog ---"
+	cp -f rtl/dsp/*.mem $(BUILD_DIR)/ 2>/dev/null || true
+	cp -f sim/*.mem $(BUILD_DIR)/ 2>/dev/null || true
+	iverilog -g2012 -I $(RTL_DIR)/dsp -I sim -o $(BUILD_DIR)/sim.vvp sim/tb_top_rf_demod.v $(RTL_SRCS)
+	@echo "--- [Sim 2/2] Running VVP Simulation Engine ---"
+	cd $(BUILD_DIR) && vvp sim.vvp
+	@echo "-----------------------------------------------------------------"
+	@echo "Simulation successful. Signal waveform dumped to: $(BUILD_DIR)/dump.vcd"
+	@echo "To inspect traces, execute: gtkwave $(BUILD_DIR)/dump.vcd"
+	@echo "-----------------------------------------------------------------"
 
 clean:
 	rm -rf $(BUILD_DIR)
-

@@ -116,7 +116,7 @@ module tb_top_rf_demod;
     integer decimated_sample_count = 0;
 
     initial begin
-        $dumpfile("build/dump.vcd");
+        $dumpfile("dump.vcd");
         $dumpvars(0, tb_top_rf_demod);
 
         // Load Stimulus Vector
